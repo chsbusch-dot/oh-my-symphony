@@ -355,6 +355,19 @@ def _request_has_valid_service_instance(
 _BROWSER_PROVENANCE_HEADERS = ("Origin", "Referer", "Sec-Fetch-Site", "Sec-Fetch-Mode")
 
 
+CLIENT_HEADER = "X-Symphony-Client"
+
+
+def _request_is_same_origin(request: web.Request) -> bool:
+    """True only when the browser itself vouches for same-origin provenance.
+
+    `Sec-Fetch-Site` is a forbidden header: page scripts cannot set or spoof
+    it, so a value of `same-origin` means the calling page is served by this
+    server (or by the operator's own front door proxying it under one origin).
+    """
+    return request.headers.get("Sec-Fetch-Site", "").strip().lower() == "same-origin"
+
+
 def _request_from_browser(request: web.Request) -> bool:
     """True when the request carries any header only a browser attaches.
 
@@ -413,6 +426,24 @@ async def _api_guard(request: web.Request, handler):
         ):
             return _json_error(
                 415, "unsupported_media_type", "mutations require application/json"
+            )
+        # Second CSRF barrier (defence in depth with the JSON rule above): a
+        # browser mutation that is not same-origin must carry a custom header.
+        # A cross-site OR same-site page (any other host under the operator's
+        # cookie domain) cannot attach one without a CORS preflight, and this
+        # server answers no preflight, so the operator's session cookie alone
+        # can never start a run from another page. The server's own board
+        # (same-origin) and scripts without browser provenance are unaffected.
+        if (
+            request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and _request_from_browser(request)
+            and not _request_is_same_origin(request)
+            and not request.headers.get(CLIENT_HEADER, "").strip()
+        ):
+            return _json_error(
+                403,
+                "missing_client_header",
+                f"browser mutations from another origin require the {CLIENT_HEADER} header",
             )
     return await handler(request)
 
