@@ -361,11 +361,26 @@ CLIENT_HEADER = "X-Symphony-Client"
 def _request_is_same_origin(request: web.Request) -> bool:
     """True only when the browser itself vouches for same-origin provenance.
 
-    `Sec-Fetch-Site` is a forbidden header: page scripts cannot set or spoof
-    it, so a value of `same-origin` means the calling page is served by this
-    server (or by the operator's own front door proxying it under one origin).
+    `Sec-Fetch-Site` and `Origin` are forbidden headers: page scripts cannot
+    set or spoof them. `Sec-Fetch-Site: same-origin` means the calling page
+    is served by this server (or by the operator's own front door proxying it
+    under one origin); an `Origin` whose host is this request's host says the
+    same thing on browsers that predate `Sec-Fetch-*`.
     """
-    return request.headers.get("Sec-Fetch-Site", "").strip().lower() == "same-origin"
+    if request.headers.get("Sec-Fetch-Site", "").strip().lower() == "same-origin":
+        return True
+    origin = request.headers.get("Origin", "").strip()
+    if not origin:
+        return False
+    try:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(origin)
+    except ValueError:
+        return False
+    if not parts.hostname or parts.hostname.lower() != (request.url.host or "").lower():
+        return False
+    return parts.port is None or parts.port == request.url.port
 
 
 def _request_from_browser(request: web.Request) -> bool:
