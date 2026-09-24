@@ -362,11 +362,20 @@ async def test_browser_mutation_from_other_origin_needs_client_header(
         "/api/v1/refresh", json={}, headers={"Origin": "https://evil.example", "X-Symphony-Client": "portal"}
     )
     assert resp.status == 202
-    # the server's own board: same-origin, no header needed
+    # the server's own board: same-origin, no header needed (either signal)
     resp = await client.post(
         "/api/v1/refresh", json={}, headers={"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}
     )
     assert resp.status == 202
+    resp = await client.post(
+        "/api/v1/refresh", json={}, headers={"Origin": f"http://{client.host}:{client.port}"}
+    )
+    assert resp.status == 202
+    # a page on another port of the same host is NOT same-origin
+    resp = await client.post(
+        "/api/v1/refresh", json={}, headers={"Origin": f"http://{client.host}:{client.port + 1}"}
+    )
+    assert resp.status == 403
     # a script with no browser provenance keeps working
     resp = await client.post("/api/v1/refresh", json={})
     assert resp.status == 202
