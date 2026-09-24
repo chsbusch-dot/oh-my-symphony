@@ -356,7 +356,7 @@ async def test_browser_mutation_from_other_origin_needs_client_header(
     ):
         resp = await client.post("/api/v1/refresh", json={}, headers=headers)
         assert resp.status == 403, headers
-        assert (await resp.json())["error"]["code"] == "missing_client_header"
+        assert (await resp.json())["error"]["code"] == "forbidden_origin"
     # the header can only be present after a preflight, so it is proof of consent
     resp = await client.post(
         "/api/v1/refresh", json={}, headers={"Origin": "https://evil.example", "X-Symphony-Client": "portal"}
@@ -371,11 +371,12 @@ async def test_browser_mutation_from_other_origin_needs_client_header(
         "/api/v1/refresh", json={}, headers={"Origin": f"http://{client.host}:{client.port}"}
     )
     assert resp.status == 202
-    # a page on another port of the same host is NOT same-origin
+    # a page on another host under the same cookie domain is NOT trusted
     resp = await client.post(
-        "/api/v1/refresh", json={}, headers={"Origin": f"http://{client.host}:{client.port + 1}"}
+        "/api/v1/refresh", json={}, headers={"Origin": "https://other.lan.example"}
     )
     assert resp.status == 403
+    assert TRUSTED_ORIGINS_ENV in (await resp.json())["error"]["message"]
     # a script with no browser provenance keeps working
     resp = await client.post("/api/v1/refresh", json={})
     assert resp.status == 202
