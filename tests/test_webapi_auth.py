@@ -341,6 +341,37 @@ async def test_bodyless_browser_mutations_require_json_content_type(
     assert resp.status == 202
 
 
+async def test_browser_mutation_from_other_origin_needs_client_header(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Second CSRF barrier: a browser mutation that is not same-origin must carry
+    X-Symphony-Client (a custom header forces a CORS preflight this server never
+    answers). Same-origin pages (the built-in board) and CLI callers are exempt."""
+    monkeypatch.delenv(API_TOKEN_ENV, raising=False)
+    # cross-site and same-site pages: JSON alone is not enough
+    for headers in (
+        {"Origin": "https://evil.example"},
+        {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors"},
+        {"Sec-Fetch-Site": "cross-site"},
+    ):
+        resp = await client.post("/api/v1/refresh", json={}, headers=headers)
+        assert resp.status == 403, headers
+        assert (await resp.json())["error"]["code"] == "missing_client_header"
+    # the header can only be present after a preflight, so it is proof of consent
+    resp = await client.post(
+        "/api/v1/refresh", json={}, headers={"Origin": "https://evil.example", "X-Symphony-Client": "portal"}
+    )
+    assert resp.status == 202
+    # the server's own board: same-origin, no header needed
+    resp = await client.post(
+        "/api/v1/refresh", json={}, headers={"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}
+    )
+    assert resp.status == 202
+    # a script with no browser provenance keeps working
+    resp = await client.post("/api/v1/refresh", json={})
+    assert resp.status == 202
+
+
 async def test_bodyless_cli_mutations_still_work_without_json(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
