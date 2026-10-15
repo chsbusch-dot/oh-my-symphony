@@ -226,6 +226,13 @@ def build_service_config(
         name="tracker.network_timeout_seconds",
     )
 
+    normalize_legacy_human_review = tracker_raw.get("normalize_legacy_human_review", True)
+    if not isinstance(normalize_legacy_human_review, bool):
+        raise ConfigValidationError(
+            "tracker.normalize_legacy_human_review must be a boolean",
+            value=normalize_legacy_human_review,
+        )
+
     archive_state_raw = tracker_raw.get("archive_state")
     archive_state = (
         archive_state_raw.strip()
@@ -250,6 +257,7 @@ def build_service_config(
         archive_after_days=archive_after_days,
         email=tracker_email,
         network_timeout_seconds=network_timeout_seconds,
+        normalize_legacy_human_review=normalize_legacy_human_review,
     )
 
     polling_raw = cfg.get("polling") or {}

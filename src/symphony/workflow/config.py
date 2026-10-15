@@ -81,6 +81,12 @@ class TrackerConfig:
     # Timeout used by Jira/Linear HTTP clients for each network operation.
     # File tracker ignores this field.
     network_timeout_seconds: float = 30.0
+    # tracker.kind=file: every tick, a `Human Review` card with completion
+    # evidence and no intervention marker moves to `Done` (legacy boards used
+    # Human Review as "Confirm Done"). Set false on boards where Human Review
+    # always means a person decides, e.g. an `after_done` hook that parks a
+    # Done card there because its PR needs a human.
+    normalize_legacy_human_review: bool = True
 
 
 @dataclass(frozen=True)

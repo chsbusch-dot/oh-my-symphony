@@ -4736,7 +4736,7 @@ class Orchestrator:
         Older file boards used it as the normal "Confirm Done" lane, which
         freezes dependencies once Human Review becomes intervention-only.
         """
-        if cfg.tracker.kind != "file":
+        if cfg.tracker.kind != "file" or not cfg.tracker.normalize_legacy_human_review:
             return 0
         done_state = _human_review_done_state(cfg)
         if done_state is None:
