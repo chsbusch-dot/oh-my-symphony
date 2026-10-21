@@ -10,6 +10,11 @@ tracker:
   # works). 30 days is a safe default.
   archive_state: Archive
   archive_after_days: 30
+  # Legacy sweep: on each poll a `Human Review` card with completion evidence
+  # and no intervention marker moves to `Done`. Uncomment on boards where
+  # Human Review always means a person decides (e.g. an `after_done` hook
+  # parks cards there for PR review).
+  # normalize_legacy_human_review: false
   # Optional one-line legend rendered under each TUI column header.
   state_descriptions:
     Todo: "Triage; route to In Progress"

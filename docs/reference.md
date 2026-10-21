@@ -368,7 +368,12 @@ the Todo prompt.
 ## Trackers: file, Linear, Jira
 
 - **File** (`tracker: { kind: file, board_root: ./kanban }`): Markdown tickets
-  live in Git next to your code. No API key or signup.
+  live in Git next to your code. No API key or signup. On each poll a
+  `Human Review` card that carries completion evidence and no intervention
+  marker moves to `Done` (legacy boards used Human Review as "Confirm Done");
+  set `tracker.normalize_legacy_human_review: false` on boards where Human
+  Review always means a person decides, e.g. an `after_done` hook that parks
+  a card there because its PR needs review.
 - **Linear**: see [`WORKFLOW.example.md`](../WORKFLOW.example.md)
   (`tracker.kind: linear`, `project_slug`, `api_key: $LINEAR_API_KEY`). The
   Codex `linear_graphql` client tool is only advertised when
