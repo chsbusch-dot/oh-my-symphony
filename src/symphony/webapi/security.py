@@ -51,6 +51,14 @@ TRUSTED_ORIGINS_ENV = "SYMPHONY_TRUSTED_ORIGINS"
 # path is the exact managed-service health probe, authenticated by its separate
 # per-launch capability and scoped to `/api/v1/health` below.
 API_TOKEN_ENV = "SYMPHONY_API_TOKEN"
+# Second CSRF barrier for browser mutations that are not same-origin. A page
+# from another origin cannot attach a custom header without a CORS preflight,
+# and the board grants no cross-origin access, so such a request never leaves
+# the browser. Operators who drive the board from another origin through
+# their own front door (a portal behind a reverse proxy) send it, e.g.
+#   X-Symphony-Client: portal
+# together with the matching SYMPHONY_TRUSTED_ORIGINS entry.
+CLIENT_HEADER = "X-Symphony-Client"
 # The one route where the token may also arrive as `?token=`: browsers
 # cannot set an Authorization header on a WebSocket handshake, so the SPA
 # appends the query parameter there. Scoped to the exact path — anywhere
@@ -275,6 +283,21 @@ def _request_from_browser(request: web.Request) -> bool:
     return any(h in request.headers for h in _BROWSER_PROVENANCE_HEADERS)
 
 
+def _request_is_same_origin(request: web.Request) -> bool:
+    """True when the browser itself vouches that the page may mutate this board.
+
+    `Sec-Fetch-Site` and `Origin` are forbidden headers: page scripts cannot
+    set or spoof them. `Sec-Fetch-Site: same-origin` means the page is served
+    by this server (or by the operator's own front door proxying it under one
+    origin). An `Origin` is accepted under the same policy the project
+    mutations use: local origins and `SYMPHONY_TRUSTED_ORIGINS`.
+    """
+    if request.headers.get("Sec-Fetch-Site", "").strip().lower() == "same-origin":
+        return True
+    origin = request.headers.get("Origin", "").strip()
+    return bool(origin) and _origin_is_trusted(request, origin)
+
+
 @web.middleware
 async def _api_guard(request: web.Request, handler):
     if request.path.startswith("/api/"):
@@ -347,6 +370,25 @@ async def _api_guard(request: web.Request, handler):
         ):
             return _json_error(
                 415, "unsupported_media_type", "mutations require application/json"
+            )
+        # Second CSRF barrier, defence in depth with the JSON rule above: a
+        # browser mutation that is not same-origin must carry a custom
+        # header, which only a CORS preflight could let a cross-origin page
+        # add. Same-origin pages (`Sec-Fetch-Site: same-origin`, which page
+        # scripts cannot forge) and origins the operator declared need
+        # nothing extra; everything else gets the PM routes' refusal code.
+        if (
+            request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and _request_from_browser(request)
+            and not _request_is_same_origin(request)
+            and not request.headers.get(CLIENT_HEADER, "").strip()
+        ):
+            return _json_error(
+                403,
+                "forbidden_origin",
+                f"browser mutations from another origin need the {CLIENT_HEADER} "
+                f"header (sent only after a CORS preflight) or a "
+                f"{TRUSTED_ORIGINS_ENV} entry",
             )
     return await handler(request)
 

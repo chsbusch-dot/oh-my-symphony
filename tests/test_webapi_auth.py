@@ -28,6 +28,7 @@ from symphony.server import build_app
 from symphony.workflow import WorkflowState
 from symphony.webapi import (
     API_TOKEN_ENV,
+    CLIENT_HEADER,
     TRUSTED_ORIGINS_ENV,
     _request_has_valid_bearer,
     _request_has_valid_ws_query_token,
@@ -358,6 +359,66 @@ async def test_bodyless_browser_mutations_require_json_content_type(
     assert resp.status == 202
 
 
+async def test_browser_mutation_from_other_origin_needs_client_header(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Second CSRF barrier: a browser mutation that is not same-origin must
+    carry `X-Symphony-Client`, which a cross-origin page cannot add without
+    a CORS preflight. Same-origin pages and trusted origins need nothing."""
+    monkeypatch.delenv(API_TOKEN_ENV, raising=False)
+    monkeypatch.delenv(TRUSTED_ORIGINS_ENV, raising=False)
+    for headers in (
+        {"Origin": "https://evil.example"},
+        {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors"},
+        {"Sec-Fetch-Site": "cross-site"},
+    ):
+        resp = await client.post("/api/v1/refresh", json={}, headers=headers)
+        assert resp.status == 403, headers
+        assert (await resp.json())["error"]["code"] == "forbidden_origin"
+    # The header is what a trusted front door (reverse proxy, portal) sends.
+    resp = await client.post(
+        "/api/v1/refresh",
+        json={},
+        headers={"Origin": "https://evil.example", CLIENT_HEADER: "portal"},
+    )
+    assert resp.status == 202
+    # `Sec-Fetch-Site: same-origin` is set by the browser, never by a page.
+    resp = await client.post(
+        "/api/v1/refresh",
+        json={},
+        headers={"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"},
+    )
+    assert resp.status == 202
+    # An Origin naming this very host is same-origin too.
+    resp = await client.post(
+        "/api/v1/refresh",
+        json={},
+        headers={"Origin": f"http://{client.host}:{client.port}"},
+    )
+    assert resp.status == 202
+    # A foreign Origin the operator did not declare is refused, and the
+    # message names the knob that would admit it...
+    resp = await client.post(
+        "/api/v1/refresh",
+        json={},
+        headers={"Origin": "https://other.lan.example"},
+    )
+    assert resp.status == 403
+    assert TRUSTED_ORIGINS_ENV in (await resp.json())["error"]["message"]
+    # ...and declaring it admits the origin even without the header.
+    monkeypatch.setenv(TRUSTED_ORIGINS_ENV, "https://other.lan.example")
+    resp = await client.post(
+        "/api/v1/refresh",
+        json={},
+        headers={"Origin": "https://other.lan.example"},
+    )
+    assert resp.status == 202
+    monkeypatch.delenv(TRUSTED_ORIGINS_ENV, raising=False)
+    # No browser provenance at all (curl, scripts): not a CSRF vector.
+    resp = await client.post("/api/v1/refresh", json={})
+    assert resp.status == 202
+
+
 PM_MUTATION_PATH = "/api/v1/pm/changes"
 
 
@@ -382,13 +443,16 @@ async def test_pm_mutations_refuse_cross_origin_provenance(
 async def test_cross_origin_refusal_is_scoped_to_pm_routes(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Board routes outside PM keep their pre-PM behavior: a JSON mutation
-    # with a foreign Origin is not refused by the global guard.
+    # The PM origin guard refuses a foreign Origin outright, client header or
+    # not. Board routes outside PM only ask for the client header (the second
+    # CSRF barrier tested above), so the same request passes there with it.
     monkeypatch.delenv(API_TOKEN_ENV, raising=False)
-    resp = await client.post(
-        "/api/v1/refresh", json={}, headers={"Origin": "http://evil.example"}
-    )
+    headers = {"Origin": "http://evil.example", CLIENT_HEADER: "portal"}
+    resp = await client.post("/api/v1/refresh", json={}, headers=headers)
     assert resp.status == 202
+    resp = await client.post(PM_MUTATION_PATH, json={}, headers=headers)
+    assert resp.status == 403
+    assert (await resp.json())["error"]["code"] == "forbidden_origin"
 
 
 async def test_origin_guard_runs_after_bearer_and_before_mutation(

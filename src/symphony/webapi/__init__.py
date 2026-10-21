@@ -12,7 +12,10 @@ Security model: local operator tool. When the server is bound to loopback
 (the default), every `/api/` request must carry a loopback Host header —
 this blocks DNS-rebinding reads as well as writes. Mutating methods must
 additionally send a JSON content type, which forces a CORS preflight on
-cross-origin HTML/form attempts. Binding to a non-loopback interface is an
+cross-origin HTML/form attempts, and a browser mutation that is not
+same-origin (nor from a trusted origin) must also carry the
+`X-Symphony-Client` header, a second barrier no cross-origin page can pass
+without that preflight. Binding to a non-loopback interface is an
 explicit operator opt-in to network exposure and disables the Host check.
 Setting `SYMPHONY_API_TOKEN` adds a credential layer on top: every operator
 `/api/` request (reads included) must then present it as a bearer token, so an
@@ -72,6 +75,7 @@ from .security import (
     _LOOPBACK_BINDS,
     TRUSTED_ORIGINS_ENV,
     API_TOKEN_ENV,
+    CLIENT_HEADER,
     _CHAT_WS_PATH,
     _HEALTH_PATH,
     _PM_API_PREFIX,
@@ -97,6 +101,7 @@ from .security import (
     _request_has_valid_service_instance,
     _BROWSER_PROVENANCE_HEADERS,
     _request_from_browser,
+    _request_is_same_origin,
     _api_guard,
     _read_json,
     _wrap,
